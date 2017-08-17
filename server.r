@@ -1,394 +1,401 @@
 library(shiny)
-library(LIME)
+library(LIME) ## download from github
+library(shinyFiles)
 library(TMB)
+library(TMBhelper) ## download from github
 
 
-shinyServer(function(input, output, clientData, session) {
-  Sys <- Sys.info()['sysname']
-
-  # Life-history simulation 
-  output$DataSimulation <- renderPlot({ 
-
-
-	lh <- create_lh_list(vbk=input$vbk, linf=input$linf, lwa=0.025, lwb=3, S50=input$SL50, M50=input$ML50, selex_input="length", maturity_input="length", binwidth=input$binwidth, CVlen=input$CVlen, SigmaR=input$SigmaR, SigmaF=input$SigmaF) 
-
+shinyServer(function(input, output){
   
-  par(mfrow=c(2,3), mar=c(3,4,1,1), mgp=c(1.6,0.5,0))
-  plot(lh$Mat_a, type="l", ylim=c(0, 1.1), lwd=4, col="gray", xlab="Age", ylab="", xaxs="i", yaxs="i")
-  lines(lh$S_a, lwd=4, lty=2, col="blue")
-  par(new=TRUE)
-  plot(lh$L_a, ylim=c(0, max(lh$L_a)*1.1), xaxt="n", yaxt="n", type="l", lwd=4, col="forestgreen", xlab="", ylab="", xaxs="i", yaxs="i")
-  axis(4, at=pretty(c(0,max(lh$L_a)*1.1)))
-  legend('bottomright', legend=c("Maturity", "Selectivity", "Length"), col=c("gray", "blue", "forestgreen"), lty=c(1,2,1), lwd=4)
-  mtext("Length (cm)", side=4, line=2)
-  mtext("Proportion", side=2, line=2)
+  values <- reactiveValues(useDF=FALSE, default=NULL, goRun=FALSE)
+  # Observe Events
+  observeEvent(input$defPars, {
+    values$useDF <- TRUE
+    values$default <- c(65, 0.2, -0.01, 0.38, 13, 34, 39, 0.025, 2.79)
+  })
+  observeEvent(input$goAssess,{
+    values$goRun <- TRUE
+  })
   
-  simdata <- sim_pop(lh=lh, Nyears=input$Nyears, Fdynamics=input$Fdynamics, Rdynamics=input$Rdynamics, Nyears_comp=input$Nyears, comp_sample=1000, nburn=50, seed=123, modname="LC1")
-  plot(simdata$D_t, ylim=c(0, max(simdata$D_t)*1.5), type="l", lwd=4, col="black", xlab="Year", ylab="")
-  mtext("Relative biomass", side=3, line=-2)
-  plot(simdata$SPR_t, ylim=c(0, max(simdata$SPR_t)*1.5), type="l", lwd=4, col="black", xlab="Year", ylab="")
-  mtext("Spawning potential ratio (SPR)", side=3, line=-2)
-  plot(simdata$R_t, ylim=c(0, max(simdata$R_t)*1.5), type="l", lwd=4, col="black", xlab="Year", ylab="")
-  mtext("Relative recruitment", side=3, line=-2)
-  plot(simdata$F_t, ylim=c(0, max(simdata$F_t)*1.5), type="l", lwd=4, col="black", xlab="Year", ylab="")
-  mtext("Fishing mortality", side=3, line=-2)
-  plot(simdata$ML_t, ylim=c(0, max(simdata$ML_t)*1.5), type="l", lwd=4, col="black", xlab="Year", ylab="")
-  mtext("Mean length in catch", side=3, line=-2)
-  }, res=100, height= function() session$clientData$output_DataSimulation_width
-  )
-
-  output$SaveSimulation <- renderText({
-    savesim <- eventReactive(input$saveButton,{
-      TRUE
-    })
-    if(savesim()==TRUE){
-      
-      dir.create(file.path(".", "sim"), showWarnings=FALSE)
-      
-      lh <- create_lh_list(vbk=input$vbk, linf=input$linf, lwa=0.025, lwb=3, S50=input$SL50, M50=input$ML50, selex_input="length", maturity_input="length", binwidth=input$binwidth, CVlen=input$CVlen, SigmaR=input$SigmaR, SigmaF=input$SigmaF) 
-      simdata <- sim_pop(lh=lh, Nyears=input$Nyears, Fdynamics=input$Fdynamics, Rdynamics=input$Rdynamics, Nyears_comp=input$Nyears, comp_sample=1000, nburn=50, seed=123, modname="LC1")
-      
-      saveData <- function(data, name, type="csv") {
-        # Create a unique file name
-        fileName <- paste0(name, ".", type)
-        # Write the file to the local system
-        if(type=="csv"){
-          write.csv(
-            x = data,
-            file = file.path("sim", fileName), 
-            row.names = TRUE, quote = TRUE
+  output$InputPars <- renderUI({
+    times <- input$defPars
+    div(id=letters[(times %% length(letters)) + 1],
+        h4("von Bertalanffy growth parameters"),
+        fluidRow(
+          column(4,
+                 numericInput("linf", label = HTML(paste0(tags$i("L"), tags$sub(HTML("&infin;")))), value=65)
+          ),
+          column(4,
+                 numericInput("vbk", label=tags$i("k"), value=0.21)
+          ),
+          column(4,
+                 numericInput("t0", label=HTML(paste0(tags$i("t", tags$sub(HTML("0"))))), value=-0.01)
+          )),
+        h4("Natural mortality"),
+        fluidRow(
+          column(6,
+                 numericInput("M", label = tags$i("M"), value=0.38)
+          )),
+        h4("Length-at-Maturity"),
+        fluidRow(
+          column(6,
+                 numericInput("ML50", label = tags$i(HTML(paste0("L", tags$sub("50")))), value=34)
+          ),
+          column(6,
+                 numericInput("ML95", label = tags$i(HTML(paste0("L", tags$sub("95")))), value=39)
+          )),
+        h4("Length-weight parameters"),
+        fluidRow(
+          column(4,
+                 numericInput("lwa", label = tags$i("a"), value=0.025)
+          ),
+          column(4,
+                 numericInput("lwb", label=tags$i("b"), value=2.79)
+          )),
+        h4("Length-at-Selectivity"),
+        fluidRow(
+          column(6,
+                numericInput("SL50", label=tags$i(HTML(paste0("S", tags$sub("50")))), value=20),
+                radioButtons("selex_type", label="Selectivity curve shape", choices=c("logistic", "dome"), selected="logistic"),
+                conditionalPanel(
+                  condition = "input.selex_type=='dome'",
+                  numericInput("dome_sd", label="Right-side standard deviation", value=2, min=0)
+                )
+          ),
+          column(6,
+                 numericInput("SL95", label=tags$i(HTML(paste0("S", tags$sub("95")))), value=20*1.3)
+          )),
+        h4("Time steps per year"),
+        fluidRow(
+          column(6,
+                numericInput("nseasons", label=tags$i(HTML(paste0("n", tags$sub("s")))), value=1)
           )
-        }
-        if(type=="rds"){
-          saveRDS(data, file=file.path("sim", fileName))
-        }
-   
-      }
-      
-      if(input$Nyears>=20) saveData(simdata$LF, name="SimLenFreq20")
-      if(input$Nyears>=10) saveData(simdata$LF[(nrow(simdata$LF)-9):nrow(simdata$LF),], name="SimLenFreq10")
-      if(input$Nyears>=5) saveData(simdata$LF[(nrow(simdata$LF)-4):nrow(simdata$LF),], name="SimLenFreq5")
-      if(input$Nyears>=2) saveData(simdata$LF[(nrow(simdata$LF)-1):nrow(simdata$LF),], name="SimLenFreq2")
-      LF1 <- t(simdata$LF[nrow(simdata$LF),])
-      rownames(LF1) <- nrow(simdata$LF)
-      saveData(LF1, name="SimLenFreq1")
-      saveData(simdata$I_t, "SimIndex")
-      saveData(simdata$C_t, "SimCatch")
-      saveData(simdata$F_t, "TrueF")
-      saveData(simdata$R_t, "TrueR")
-      saveData(simdata$SPR, "TrueSPR")
-      saveData(simdata, "Truth", type="rds")
-    }
-    
+        )
+    )
   })
-
-  # Life-history simulation -- length comps
-  output$DataSimulation_LC <- renderPlot({ 
   
-  #     ChkRange()
-  lh <- create_lh_list(vbk=input$vbk, linf=input$linf, lwa=0.025, lwb=3, S50=input$SL50, M50=input$ML50, selex_input="length", maturity_input="length", binwidth=input$binwidth, CVlen=input$CVlen, SigmaR=input$SigmaR, SigmaF=input$SigmaF)
-  simdata <- sim_pop(lh=lh, Nyears=input$Nyears, Fdynamics=input$Fdynamics, Rdynamics=input$Rdynamics, Nyears_comp=input$Nyears, comp_sample=1000, nburn=50, seed=123, modname="LC1")
+  get_lh <- reactive({
+    lh <- create_lh_list(linf=input$linf, vbk=input$vbk, t0=input$t0, M=input$M, M50=input$ML50, M95=input$ML95, maturity_input="length", lwa=input$lwa, lwb=input$lwb, S50=input$SL50, S95=input$SL95, selex_input="length", selex_type=input$selex_type, dome_sd=input$dome_sd, nseasons=input$nseasons)
+    return(lh)
+  })
   
-  par(mfrow=c(4,5), mar=c(0,0,0,0), omi=c(1,1,0.5,0.5))
-  for(i in 1:min(input$Nyears,20)){
-    pLF <- simdata$LF[i,]/sum(simdata$LF[i,])
-    barplot(pLF, ylim=c(0,max(simdata$LF[1,]/sum(simdata$LF[1,]))*1.1), xaxt="n", yaxt="n")
-    if(i %in% c(1)) axis(2, las=2)
-    if(i %in% c(min(input$Nyears,20))) axis(1)
-    text(x=0.9*length(pLF), y=0.9*max(simdata$LF[1,]/sum(simdata$LF[1,])), i, font=2, cex=2)
-    abline(v=input$ML50, col="red", lwd=2)
-  }
-  mtext("Proportion", side=2, line=3, outer=TRUE)
-  mtext("Length bin (cm)", side=1, line=3, outer=TRUE)
-}, res=100, height= function() session$clientData$output_DataSimulation_LC_width 
-)
-
-# Read CSV file 
- data_LC <- reactive({
-  file1 <- input$file1
-  if (is.null(file1)) return(NULL)
-  d1 <- read.csv(file1$datapath, header = TRUE,
-           sep = input$sep, quote = input$quote)
-  d1[,2:ncol(d1)]
-})	
-data_Index <- reactive({
-  file2 <- input$file2
-  if (is.null(file2)) return(NULL)
-  d1 <- read.csv(file2$datapath, header = TRUE,
-                 sep = input$sep, quote = input$quote)
-  as.matrix(d1[,2])
-})
-data_Catch <- reactive({
-  file3 <- input$file3
-  if (is.null(file3)) return(NULL)
-  d1 <- read.csv(file3$datapath, header = TRUE,
-                 sep = input$sep, quote = input$quote)
-  as.matrix(d1[,2])
-})
-data_ESS <- reactive({
-  file4 <- input$file4
-  if(is.null(file4)) return(NULL)
-  d1 <- read.csv(file4$datapath, header=TRUE, sep=input$sep, quote=input$quote)
-  t(as.matrix(d1[,2]))
-})
-
-years_LC <- reactive({
-  file1 <- input$file1
-  if(is.null(file1)) return(NULL)
-  d1 <- read.csv(file1$datapath, header=TRUE, sep=input$sep)
-  as.numeric(d1[,1])
-})
-years_Index <- reactive({
-  file2 <- input$file2
-  if (is.null(file2)) return(NULL)
-  d1 <- read.csv(file2$datapath, header = TRUE,
-                 sep = input$sep)
-  as.numeric(d1[,1])
-})
-years_Catch <- reactive({
-  file3 <- input$file3
-  if (is.null(file3)) return(NULL)
-  d1 <- read.csv(file3$datapath, header = TRUE,
-                 sep = input$sep)
-  as.numeric(d1[,1])
-})
-years_ESS <- reactive({
-  file4 <- input$file4
-  if (is.null(file4)) return(NULL)
-  d1 <- read.csv(file4$datapath, header = TRUE,
-                 sep = input$sep)
-  as.numeric(d1[,1])
-})
-
-##Print out first 6 observations 
-output$preview_LC <- renderPlot({
-  if(is.null(data_LC())) return(NULL)
-  dat <- data_LC()
-  years <- years_LC()
-  years_i <- seq_along(years)
-  bins <- seq(input$binwidth, by=input$binwidth, length=ncol(dat))
-  nyears <- length(years)
-  par(mfrow=c(1,min(length(years),6)))
-  for(i in 1:min(length(years),6)){
-    plotdat <- as.matrix(dat[i,])
-    colnames(plotdat) <- bins
-    barplot(plotdat, ylim=c(0, max(dat)), col="black")
-    text(x=0.5*ncol(dat), y=0.9*max(dat), paste0("Year ", years[i]), font=2, cex=2)
-  }
-})
-output$preview_LCtable <- renderTable({
-  if(is.null(data_LC())) return(NULL)
-  LF <- as.matrix(data_LC())
-  bins <- seq(input$binwidth, by=input$binwidth, length=ncol(LF))
-  colnames(LF) <- bins
-  rownames(LF) <- years_LC()
-  LF
-})
-output$plot_Index <- renderPlot({
-  if(is.null(data_Index())) return(NULL)
-  plot(x=years_Index(), y=data_Index(), xlim=c(0,input$Nyears), lwd=3, type="o", ylim=c(0, max(data_Index())*1.1), xlab="Year", ylab="Abundance index")
-})
-output$plot_Catch <- renderPlot({
-  if(is.null(data_Catch())) return(NULL)
-  plot(x=years_Catch(), y=data_Catch(), xlim=c(0, input$Nyears), lwd=3, type="o", ylim=c(0, max(data_Catch())*1.1), xlab="Year", ylab="Catch")
-})
-output$preview_ESS <- renderPlot({
-  if(is.null(data_ESS())) return(NULL)
-  par(mfrow=c(1,3))
-  barplot(data_ESS(), space=FALSE, col="black", xlab="Year", ylab="Effective Sample Size of Length Data")
-  axis(1, at=seq_along(years_ESS()), labels=years_ESS())
-  plot(x=1,y=1,type="n",axes=F,ann=F)
-  plot(x=1,y=1,type="n",axes=F,ann=F)
-})
-
-  output$runLIME <- renderText({
-    runsim <- eventReactive(input$goButton,{
-      TRUE
-    })
-    if(runsim()==TRUE){
-      Nyears <- input$Nyears
-      LF <- as.matrix(data_LC())
-      bins <- seq(input$binwidth, by=input$binwidth, length=ncol(LF))
-      colnames(LF) <- bins
-      rownames(LF) <- years_LC()
-      if(is.null(data_Index())==FALSE){
-        It <- as.vector(t(data_Index()))
-        names(It) <- years_Index()
-      }
-      if(is.null(data_Index())) It <- NULL
-      if(is.null(data_Catch())==FALSE){
-        Ct <- as.vector(t(data_Catch()))
-        names(Ct) <- years_Catch()
-      }
-      if(is.null(data_Catch())) Ct <- NULL
-      obs_per_year <- data_ESS()
-      names(obs_per_year) <- years_ESS()
-      input_data <- list("years"=1:Nyears, "LF"=LF, "I_t"=It, "C_t"=Ct, "obs_per_year"=obs_per_year)
-      est_sigma <- NULL
-      if(input$est_sigR) est_sigma <- c(est_sigma, "log_sigma_R")
-      if(input$est_CVL) est_sigma <- c(est_sigma, "log_CV_L")
-      if(input$est_sigC) est_sigma <- c(est_sigma, "log_sigma_C")
-      if(input$est_sigI) est_sigma <- c(est_sigma, "log_sigma_I")
-      if(all(is.null(It))==FALSE & all(is.null(Ct)==FALSE)) data_avail <- "Index_Catch_LC"
-      if(all(is.null(It))==FALSE & all(is.null(Ct))) data_avail <- "Index_LC"
-      if(all(is.null(It)) & all(is.null(Ct)==FALSE)) data_avail <- "Catch_LC"
-      if(all(is.null(It)) & all(is.null(Ct))) data_avail <- "LC"
-      lh <- create_lh_list(vbk=input$vbk, linf=input$linf, lwa=0.025, lwb=3, S50=input$SL50, M50=input$ML50, selex_input="length", maturity_input="length", binwidth=input$binwidth, CVlen=input$CVlen, SigmaR=input$SigmaR, SigmaF=input$SigmaF)
-      print(lh$SigmaR)
-      
-      param_adjust <- NULL
-      if(lh$SigmaR==0) param_adjust <- c(param_adjust, "SigmaR")
-      if(lh$SigmaF==0) param_adjust <- c(param_adjust, "SigmaF")
-      if(lh$SigmaC==0) param_adjust <- c(param_adjust, "SigmaC")
-      if(lh$SigmaI==0) param_adjust <- c(param_adjust, "SigmaI")
-      
-      val_adjust <- FALSE
-      if(all(is.null(param_adjust))==FALSE) val_adjust <- rep(0.01, length(param_adjust))
-      if(all(is.null(param_adjust))) param_adjust <- FALSE
-      
-      dir.create(file.path(".", "results"), showWarnings=FALSE)
+  output$plotLH <- renderPlot({
+    if(is.list(get_lh())==FALSE) return(NULL)
+    lh <- get_lh()
+    par(mfrow=c(3,1), mar=c(5,6,2,5))
+    plot(lh$L_a, type="l", lwd=3, col="blue", xlab="", ylab="", cex.axis=2, yaxt="n")
+    axis(2, cex.axis=2, col.axis="blue")
+    mtext(side=2, "Length", cex=2, line=3.5, col="blue")
+    mtext(side=1, "Age", cex=2, line=3.5)
     
-      res <- run_LIME(modpath=file.path(".", "results"), write=TRUE, lh=lh, input_data=input_data, est_sigma=est_sigma, data_avail=data_avail, itervec=NULL, REML=FALSE, rewrite=TRUE, fix_f=0, simulation=FALSE, param_adjust=param_adjust, val_adjust=val_adjust, f_true=FALSE, fix_param=FALSE)
+    par(new=TRUE)
+    plot(lh$W_a, type="l", lwd=3, col="forestgreen", xlab="", ylab="", xaxt="n", yaxt="n")
+    axis(4, cex.axis=2, col.axis="forestgreen")
+    mtext(side=4, "Weight", col="forestgreen", cex=2, line=3.5)
+    
+    plot(lh$Mat_l, type="l", lwd=3, xlab="", ylab="", cex.axis=2, cex.lab=2)
+    mtext(side=2, "Proportion mature", cex=2, line=3.5)
+    mtext(side=1, "Length", cex=2, line=3.5)
+  }, height=800, width=600)
+  
+  output$plotSelex <- renderPlot({
+    if(is.list(get_lh())==FALSE) return(NULL)
+    lh <- get_lh()
+    par(mfrow=c(1,1), mar=c(5,5,5,0))
+    plot(lh$S_l, type="l", lwd=3, col="blue", xlab="Length", ylab="Proportion vulnerable to gear", cex.main=2, main="Selectivity-at-length", cex.axis=2, cex.lab=2)
+  })
+  
+  output$SizeAtAge <- renderPlot({
+    if(is.list(get_lh())==FALSE) return(NULL)
+    lh <- get_lh()
+    highs <- lh$highs
+    lows <- lh$lows
+    L_a <- lh$L_a
+    CVlen <- lh$CVlen
+    lbprobs <- function(mnl,sdl) return(pnorm(highs,mnl,sdl)-pnorm(lows,mnl,sdl))
+    vlprobs <- Vectorize(lbprobs,vectorize.args=c("mnl","sdl"))
+    plba <- t(vlprobs(L_a, L_a*CVlen))
+    plba <- plba/rowSums(plba)
+    plba_plot <- t(plba[-1,])
+    ages <- lh$ages
+    
+    col_fun <- colorRampPalette(c("red","blue"))
+    cols <- col_fun(ncol(plba_plot))
+    par(mfrow=c(1,1), mar=c(5,5,5,1))
+    matplot(t(plba[-1,]), type="l", lty=1, col=cols, xlab="Length", ylab="Probability", main="Probability of being a length given age", cex.axis=2, cex.lab=2, cex.main=2)
+    legend("topright", title="Age", legend=ages[-1], col=cols, lty=1)
+  }, height=600, width=800)
+  
+  
+  # output$downloadExample <- renderUI({
+  #   if (!is.null(lc_data()) & values$useExamp) {
+  #     fluidRow(
+  #       h5(strong("Download Example File")),
+  #       downloadButton("dnlData", label = "Download", class = NULL)
+  #       , style="padding: 5px 15px;")
+  #   }
+  # })
+  # 
+  # output$dnlData <- downloadHandler(
+  #   filename = function() {
+  #     nm <- ExampleDataFile()
+  #     nm <- gsub("data/", "", nm)
+  #     nm <- gsub('.csv', "", nm)
+  #     paste(nm, '.csv', sep='')
+  #   },
+  #   content = function(file) {
+  #     write.table(lc_data(), file, sep=",", row.names=FALSE, col.names=TRUE)
+  #   }
+  # )
+  
+  lc_data <- reactive({
+      file1 <- input$file1
+      if (is.null(file1)) return(NULL)
+      dat <- read.csv(file1$datapath, header = TRUE,
+                      sep = input$sep, stringsAsFactors=FALSE, check.names=FALSE, row=1)
+    if (class(dat) == "data.frame" | class(dat) == "matrix") {
+      if (nrow(dat) > 1) {
+        chkNAs <- apply(dat, 2, is.na) # check NAs
+        dat <- dat[!apply(chkNAs, 1, prod),, drop=FALSE]
+        dat <- dat[,!apply(chkNAs, 2, prod), drop=FALSE]
+      }
+    }
+    if (class(dat) == "numeric" | class(dat) == "integer") {
+      dat <- dat[!is.na(dat)]
+    }
+    as.matrix(dat)
+  })
+  
+  c_data <- reactive({
+    file2 <- input$file2
+    if (is.null(file2)) return(NULL)
+    dat <- as.matrix(read.table(file2$datapath, header = FALSE,
+                    sep = input$sep, stringsAsFactors=FALSE, check.names=FALSE, row=1))
+    c_t <- as.numeric(t(dat))
+    names(c_t) <- as.numeric(rownames(dat))
+    # if (class(dat) == "data.frame" | class(dat) == "matrix") {
+    #   if (nrow(dat) > 1) {
+    #     chkNAs <- apply(dat, 2, is.na) # check NAs
+    #     dat <- dat[!apply(chkNAs, 1, prod),, drop=FALSE]
+    #     dat <- dat[,!apply(chkNAs, 2, prod), drop=FALSE]
+    #   }
+    # }
+    # if (class(dat) == "numeric" | class(dat) == "integer") {
+    #   dat <- dat[!is.na(dat)]
+    # }
+    c_t
+  })
+  
+  i_data <- reactive({
+    file3 <- input$file3
+    if (is.null(file3)) return(NULL)
+    dat <- as.matrix(read.table(file3$datapath, header = FALSE,
+                                sep = input$sep, stringsAsFactors=FALSE, check.names=FALSE, row=1))
+    i_t <- as.numeric(t(dat))
+    names(i_t) <- as.numeric(rownames(dat))
+    # if (class(dat) == "data.frame" | class(dat) == "matrix") {
+    #   if (nrow(dat) > 1) {
+    #     chkNAs <- apply(dat, 2, is.na) # check NAs
+    #     dat <- dat[!apply(chkNAs, 1, prod),, drop=FALSE]
+    #     dat <- dat[,!apply(chkNAs, 2, prod), drop=FALSE]
+    #   }
+    # }
+    # if (class(dat) == "numeric" | class(dat) == "integer") {
+    #   dat <- dat[!is.na(dat)]
+    # }
+    i_t
+  })
+  
+  total_years <- reactive({
+    lc_yrs <- c_yrs <- i_yrs <- NULL
+    if(all(is.null(lc_data()))==FALSE) lc_yrs <- as.numeric(rownames(lc_data()))
+    if(all(is.null(c_data()))==FALSE) c_yrs <- as.numeric(names(c_data()))
+    if(all(is.null(i_data()))==FALSE) i_yrs <- as.numeric(names(i_data()))
+    
+    all_yrs <- c(lc_yrs, c_yrs, i_yrs)
+    startyr <- min(all_yrs)
+    endyr <- max(all_yrs)
+    all_yrs <- startyr:endyr
+    if(length(all_yrs)>1000) stop("Some years may be in indexed numbers (e.g. 1, 2, 3) while other years may be in AD (e.g. 2000, 2001, 2002)")
+    return(all_yrs)
+  })
+  
+  output$plot_LC1 <- renderPlot({
+    if(is.null(lc_data())) return(NULL)
+    if(!is.null(lc_data())){
+      lc <- lc_data()
+      yrs <- as.numeric(rownames(lc))
+      lbins <- as.numeric(colnames(lc))
+      lc_inp <- list("LF"=lc)
+      plot_LCfits(Inputs=lc_inp, true_lc_years=yrs)
     }
   })
   
-  output$LIME_assessment <- renderPlot({
-    if(file.exists(file.path("results", "Report.rds"))==FALSE) return(NULL)
-      rep <- readRDS(file.path("results", "Report.rds"))
-      sdrep <- readRDS(file.path("results", "Sdreport.rds"))
-      inp <- readRDS(file.path("results", "Inputs.rds"))
-      der <- readRDS(file.path("results", "Derived_quants.rds"))
-      
-      if(input$simcompare==TRUE) true <- readRDS(file.path(".", "sim", "Truth.rds"))
-      
-      FUN <- function(InputMat, log=TRUE, rel=FALSE){
-        index <- which(is.na(InputMat[,2])==FALSE)
-        if(log==TRUE) return(c( exp(InputMat[index,1]-1.96*InputMat[index,2]), rev(exp(InputMat[index,1]+1.96*InputMat[index,2]))))
-        if(log==FALSE) return(c( InputMat[index,1]-1.96*InputMat[index,2], rev(InputMat[index,1]+1.96*InputMat[index,2])))
+  output$CatchIndex <- renderPlot({
+    if(is.null(c_data()) & is.null(i_data())) return(NULL)
+    par(mfrow=c(1,2))
+    if(is.null(c_data())==FALSE){
+      c_t <- c_data()
+      c_yrs <- as.numeric(names(c_t))
+      all_yrs <- total_years()
+      catch_plot <- rep(NA, length(all_yrs))
+      catch_plot[c_yrs] <- c_t
+      plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Catch", cex.lab=1.5, ylim=c(0, max(c_t)*1.1))
+    }
+    if(is.null(i_data())==FALSE){
+      i_t <- i_data()
+      i_yrs <- as.numeric(names(i_t))
+      all_yrs <- total_years()
+      index_plot <- rep(NA, length(all_yrs))
+      index_plot[i_yrs] <- i_t
+      plot(all_yrs, index_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Abundance index", cex.lab=1.5, ylim=c(0, max(i_t)*1.1))
+    }
+  })
+  
+  output$plot_LC2 <- renderPlot({
+    if(is.null(lc_data())) return(NULL)
+      lc <- lc_data()
+      yrs <- as.numeric(rownames(lc))
+      lbins <- as.numeric(colnames(lc))
+      Inputs <- list("LF"=lc)
+      if(values$goRun){
+        res <- doAssess()
+        Report <- readRDS(file.path(path(), "Report.rds"))
+        Inputs <- readRDS(file.path(path(), "Inputs.rds"))
+        plot_LCfits(Inputs=Inputs$Data, Report=Report, true_lc_years=yrs)
       }
-      par(mfrow=c(2,2))
-      plot(rep$F_t, type="l", lwd=2, xlim=c(1,length(rep$F_t)), ylim=c(0, max(rep$F_t)*3), col="blue", xaxs="i", yaxs="i", xlab="Year", ylab="Fishing mortality")
-      if(all(is.na(sdrep))==FALSE) polygon( y=FUN(summary(sdrep)[which(rownames(summary(sdrep))=="lF_t"),], log=TRUE), x=c(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lF_t"),2])==FALSE), rev(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lF_t"),2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-      if(input$simcompare==TRUE) lines(true$F_t, col="black", lwd=2)
-      
-      plot(rep$R_t, type="l", lwd=2, xlim=c(1,length(rep$F_t)), ylim=c(0, max(rep$R_t)*3), col="blue", xaxs="i", yaxs="i", xlab="Year", ylab="Recruitment")
-      if(all(is.na(sdrep))==FALSE) polygon( y=FUN(summary(sdrep)[which(rownames(summary(sdrep))=="lR_t"),], log=TRUE), x=c(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lR_t"),2])==FALSE), rev(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lR_t"),2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-      if(input$simcompare==TRUE) lines(true$R_t, col="black", lwd=2)
-      
-      plot(x=1,y=1, type="n", xlim=c(1, length(rep$SPR_t)), ylim=c(0, max(rep$SPR_t)*3), xlab="Year", ylab="SPR", xaxs="i", yaxs="i")
-      polygon(x=c(0,input$Nyears, input$Nyears, 0), y=c(0.3,0.3,max(rep$SPR_t)*3, max(rep$SPR_t)*3), border=NA, col="#00AA0030")
-      polygon(x=c(0,input$Nyears, input$Nyears, 0), y=c(0,0,0.3,0.3), border=NA, col="#AA000030")
-      lines(x=rep$SPR_t, type="l", lwd=2, col="blue", xaxs="i", yaxs="i", xlab="Year", ylab="SPR")
-      if(all(is.na(sdrep))==FALSE) polygon( y=FUN(summary(sdrep)[which(rownames(summary(sdrep))=="SPR_t"),], log=FALSE), x=c(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="SPR_t"),2])==FALSE), rev(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="SPR_t"),2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-      if(input$simcompare==TRUE) lines(true$SPR_t, col="black", lwd=2)
-      
-      plot(x=1, y=1, type="n", xlim=c(0,1), ylim=c(0,3), xaxs="i", yaxs="i", xlab="SPR", ylab="F/F30")
-      polygon(x=c(0.3,1,1,0.3), y=c(0,0,1,1), col="#00AA0030", border=NA)
-      polygon(x=c(0,0.3,0.3,0), y=c(1,1,3,3), col="#AA000030", border=NA)
-      abline(h=1, lty=2, lwd=3)
-      abline(v=0.3, lty=2, lwd=3)
-      points(x=rep$SPR_t[length(rep$SPR_t)], y=rep$F_t[length(rep$F_t)]/der$F30, col="blue", pch=19, cex=2)
-      if(input$simcompare==TRUE){
-        F30 <- tryCatch(with(true, uniroot(calc_ref, lower=0, upper=50, Mat_a=Mat_a, W_a=W_a, M=M, S_a=S_a, ref=0.3)$root), error=function(e) NA)
-        if(is.na(F30)==FALSE) points(x=true$SPR_t[length(true$SPR_t)], y=true$F_t[length(true$F_t)]/F30, col="black", pch=19, cex=2)
+       if(values$goRun==FALSE){
+         Report <- NULL
+         plot_LCfits(Inputs=Inputs, Report=Report, true_lc_years=yrs)
+       }
+  })
+  
+  output$CatchIndex2 <- renderPlot({
+    if(is.null(c_data()) & is.null(i_data())) return(NULL)
+    par(mfrow=c(1,2))
+    if(is.null(c_data())==FALSE){
+      c_t <- c_data()
+      c_yrs <- as.numeric(names(c_t))
+      all_yrs <- total_years()
+      catch_plot <- rep(NA, length(all_yrs))
+      catch_plot[c_yrs] <- c_t
+      if(values$goRun==FALSE) plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Catch", cex.lab=1.5, ylim=c(0, max(c_t)*1.1))
+      if(values$goRun){
+        res <- doAssess()
+        Report <- readRDS(file.path(path(), "Report.rds"))
+        Sdreport <- readRDS(file.path(path(), "Sdreport.rds"))
+        if(all(is.na(Sdreport))==FALSE){
+          sd <- summary(Sdreport)[which(rownames(summary(Sdreport))=="lC_t"),]
+          sd[,2][which(is.na(sd[,2]))] <- 0
+          ylim <- c(0, max(read_sdreport(sd, log=TRUE))*1.2)
+        }
+        plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Catch", cex.lab=1.5, ylim=ylim)
+        if(all(is.na(Sdreport))==FALSE) polygon(y=read_sdreport(sd, log=TRUE), x=c(which(is.na(sd[,2])==FALSE), rev(which(is.na(sd[,2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
+        points(all_yrs, Report$C_t, lwd=2, col="blue", pch=19)
       }
-      mtext("LIME results overview", outer=TRUE, line=-2, side=3, cex=1.2)
-    }, res=100, height= function() session$clientData$output_LIME_assessment_width )
+    }
+      if(is.null(i_data())==FALSE){
+        i_t <- i_data()
+        i_yrs <- as.numeric(names(i_t))
+        all_yrs <- total_years()
+        index_plot <- rep(NA, length(all_yrs))
+        index_plot[i_yrs] <- i_t
+        if(values$goRun==FALSE) plot(all_yrs, index_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Index", cex.lab=1.5, ylim=c(0, max(i_t)*1.1))
+        if(values$goRun){
+          res <- doAssess()
+          Report <- readRDS(file.path(path(), "Report.rds"))
+          Sdreport <- readRDS(file.path(path(), "Sdreport.rds"))
+          if(all(is.na(Sdreport))==FALSE){
+            sd <- summary(Sdreport)[which(rownames(summary(Sdreport))=="lI_t"),]
+            sd[,2][which(is.na(sd[,2]))] <- 0
+            ylim <- c(0, max(read_sdreport(sd, log=TRUE))*1.2)
+          }
+          plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Index", cex.lab=1.5, ylim=ylim)
+          if(all(is.na(Sdreport))==FALSE) polygon(y=read_sdreport(sd, log=TRUE), x=c(which(is.na(sd[,2])==FALSE), rev(which(is.na(sd[,2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
+          points(all_yrs, Report$I_t, lwd=2, col="blue", pch=19)
+        }
+    }
+  })
+  
+  output$plotSelex2 <- renderPlot({
+    if(is.list(get_lh())==FALSE) return(NULL)
+    lh <- get_lh()
+    par(mfrow=c(1,1), mar=c(5,5,5,0))
+    plot(lh$S_l, type="l", lwd=3, col="blue", xlab="Length", ylab="Proportion vulnerable to gear", cex.main=2, main="Selectivity-at-length", cex.axis=2, cex.lab=2)
+  }, height=500, width=600)
+  
+  output$clickAssess <- renderUI({
+    fluidRow(
+      actionButton("goAssess", "Fit Model", icon("line-chart"), style="color: #fff; background-color: #00B700; border-color: #006D00"),
+      style="padding: 15px 15px 15px 15px;")
+  })
+  
+  shinyDirChoose(input, 'directory', roots=c(wd="."), restrictions=system.file(package='base'))
+  
+  path <- reactive({
+    if(is.null(input$directory)) return(NULL)
+    parseDirPath(c(wd="."), input$directory)
+  })
+  
+  output$printPath <- renderPrint({
+    if(is.null(path())) return(NULL)
+    path()
+  })
+  
+  doAssess <- reactive({
+    if(values$goRun==FALSE) return(NULL)
+    if(values$goRun==TRUE){
+      
+      run_dir <- path()
+      
+      lh <- get_lh()
+      lf <- lc_data()
+      c_t <- c_data()
+      i_t <- i_data()
+      yrs <- total_years()
+      input_data <- list("years"=yrs, "LF"=lf, "C_t"=c_t, "I_t"=i_t)
+      
+      data_avail <- NULL
+      if(input$lc_avail) data_avail <- "LC"
+      if(input$i_avail) data_avail <- paste0("Index_", data_avail)
+      if(input$c_avail){
+        data_avail <- paste0("Catch_", data_avail)
+        if(input$C_type=="Biomass") C_opt <- 2
+        if(input$C_type=="Numbers") C_opt <- 1
+      }
+      if(input$c_avail==FALSE) C_opt <- 0
+      
+      est_sigma <- FALSE
+      if(input$est_sigmaR) est_sigma <- "log_sigma_R"
+      
+      if(input$est_selex) S_l_input <- -1
+      if(input$est_selex==FALSE) S_l_input <- lh$S_l
+    
+      
+      res <- run_LIME(modpath=run_dir, lh=lh, input_data=input_data, data_avail=data_avail, est_sigma=est_sigma, S_l_input=S_l_input, C_opt=C_opt, newtonsteps=3, rewrite=TRUE)
+      return(res)
+    }
+  })
+  
 
-output$ReportTable <- renderTable({
-  if(file.exists(file.path("results","df.csv"))==FALSE) return(NULL)
-  df <- read.csv(file.path("results","df.csv"),header=TRUE)
-  df <- df[,-1]
-  colnames(df) <- c("Final_gradient", "Parameter", "Log_estimate", "Estimate")
-  if(input$simcompare==TRUE){
-    true <- readRDS("sim", "Truth.rds")
-    truth <- vector(NA, nrow(df))
-    names(truth) <- df$Parameter
-    truth[which(names(truth)=="log_F_t_input")] <- true$F_t
-    truth[which(names(truth)=="log_sigma_R")] <- true$SigmaR
-    truth[which(names(truth)=="logS50")] <- true$S50
-    truth[which(names(truth)=="log_q_I")] <- true$qcoef
-    truth[which(names(truth)=="beta")] <- true$R0
-    df$Truth <- truth
-  }
-  df
+  output$checkConverge <- renderDataTable({
+    if(values$goRun==FALSE) return("")
+    res <- doAssess()
+    df <- readRDS(file.path(path(), "check_convergence.rds"))
+    df
+  }, options=list(pageLength=-1, searching=FALSE, paging=FALSE, ordering=FALSE, info=FALSE))
+
+  output$plotResults <- renderPlot({
+    if(values$goRun==FALSE) return(NULL)
+    if(values$goRun){
+      lh <- get_lh()
+      res <- doAssess()
+      Report <- readRDS(file.path(path(), "Report.rds"))
+      Inputs <- readRDS(file.path(path(), "Inputs.rds"))
+      Sdreport <- readRDS(file.path(path(), "Sdreport.rds"))
+      plot_output(all_years=Inputs$Data$T_yrs, lc_years=Inputs$Data$LC_yrs, true_years=Inputs$Data$T_yrs, Inputs=Inputs, Report=Report, Sdreport=Sdreport, lh=lh, plot=c("Fish", "Rec", "SPR", "Selex"))
+    }
+  })
+  
+  
 })
-
-output$ModelFits <- renderPlot({
-  if(file.exists(file.path("results", "Report.rds"))==FALSE) return(NULL)
-
-  rep <- readRDS(file.path("results", "Report.rds"))
-  sdrep <- readRDS(file.path("results", "Sdreport.rds"))
-  inp <- readRDS(file.path("results", "Inputs.rds"))
-  
-  LC <- inp$Data$LF
-  I_t <- inp$Data$I_t
-  C_t <- inp$Data$C_t
-  years_LC <- inp$Data$LC_yrs
-  years_T <- inp$Data$T_yrs
-  years_I <- inp$Data$I_yrs
-  years_C <- inp$Data$C_yrs
-  
-  ncomp <- length(years_LC)
-  nobs <- ncomp + ifelse(is.null(years_I), 0, 1) + ifelse(is.null(years_C), 0, 1)
-  par(mfrow=c(5,5), mar=c(1,1,1,1), omi=c(1,1,1,1))
-  FUN <- function(InputMat, log=TRUE, rel=FALSE){
-    index <- which(is.na(InputMat[,2])==FALSE)
-    if(log==TRUE) return(c( exp(InputMat[index,1]-1.96*InputMat[index,2]), rev(exp(InputMat[index,1]+1.96*InputMat[index,2]))))
-    if(log==FALSE) return(c( InputMat[index,1]-1.96*InputMat[index,2], rev(InputMat[index,1]+1.96*InputMat[index,2])))
-  }
-  
-  plot(x=1,y=1,type="n",ylim=c(0,10), xlim=c(0,10),axes=F, ann=F)
-  legend("topleft", legend=c("Observed", "Predicted length comp + CI", "Predicted time series + CI"), col=c("black", "red", "blue"), lwd=3)
-  
-  if(is.null(years_I)==FALSE){
-    plot(rep$I_t_hat, type="l", lwd=2, ylim=c(0, max(rep$I_t_hat)*3), col="blue", xaxs="i", yaxs="i", xlab="Year", ylab="Recruitment")
-    if(all(is.na(sdrep))==FALSE) polygon( y=FUN(summary(sdrep)[which(rownames(summary(sdrep))=="lI_t"),], log=TRUE), x=c(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lI_t"),2])==FALSE), rev(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lI_t"),2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-    lines(x=years_I, y=I_t, col="black", lwd=2)
-    mtext(side=3, "Index", font=2, line=-2)
-  }
-
-  if(is.null(years_C)==FALSE){
-    plot(rep$C_t_hat, type="l", lwd=2, ylim=c(0, max(rep$C_t_hat)*3), col="blue", xaxs="i", yaxs="i", xlab="Year", ylab="Recruitment")
-    if(all(is.na(sdrep))==FALSE) polygon( y=FUN(summary(sdrep)[which(rownames(summary(sdrep))=="lC_t"),], log=TRUE), x=c(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lC_t"),2])==FALSE), rev(which(is.na(summary(sdrep)[which(rownames(summary(sdrep))=="lC_t"),2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-    lines(C_t, col="black", lwd=2)
-    mtext(side=3, "Catch", font=2, line=-2)
-  }
-  
-  if(is.null(years_C)==FALSE & is.null(years_I)==FALSE){
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-  }
-  if(is.null(years_C)==FALSE & is.null(years_I)){
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-  }
-  if(is.null(years_C) & is.null(years_I)==FALSE){
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-    plot(x=1,y=1,type="n",axes=F,ann=F)
-  }
-
-  for(i in 1:ncomp){
-    index <- which(years_T==years_LC[i])
-    plot(x=1:ncol(LC), y=LC[i,]/sum(LC[i,]), pch=19, ylim=c(0,max(LC[1,]/sum(LC[1,]))))
-    lines(rep$plb[index,], col="red", lwd=3)
-    mtext(side=3, paste0("LC ", index), font=2, line=-2)
-  }
-  
-
-  
-}, res=100, height= function() session$clientData$output_ModelFits_width )
-# # 
-# output$PlotSensitivities <- renderPlot({
-# 
-#   M
-#   
-# })
-
-})
- 
-  
-  
-  
