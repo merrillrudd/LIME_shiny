@@ -207,19 +207,80 @@ shinyServer(function(input, output){
   })
   
   total_years <- reactive({
-    lc_yrs <- c_yrs <- i_yrs <- NULL
-    if(all(is.null(lc_data()))==FALSE) lc_yrs <- as.numeric(rownames(lc_data()))
-    if(all(is.null(c_data()))==FALSE) c_yrs <- as.numeric(names(c_data()))
-    if(all(is.null(i_data()))==FALSE) i_yrs <- as.numeric(names(i_data()))
+    if(is.null(lc_data()) & is.null(c_data()) & is.null(i_data())) return(NULL)
+    minyr <- NULL
+    maxyr <- NULL
+    if(!is.null(lc_data())){
+      lc <- lc_data()
+      lc_yrs <- as.numeric(rownames(lc))
+      minyr <- min(lc_yrs)
+      maxyr <- max(lc_yrs)
+    }
+    if(!is.null(c_data())){
+      c_t <- c_data()
+      c_yrs <- as.numeric(names(c_t))
+      minyr <- min(c(min(c_yrs), minyr))
+      maxyr <- max(c(max(c_yrs), maxyr))
+    }
+    if(!is.null(i_data())){
+      i_t <- i_data()
+      i_yrs <- as.numeric(names(i_t))
+      minyr <- min(c(min(i_yrs), minyr))
+      maxyr <- max(c(max(i_yrs), maxyr))
+    }
     
-    all_yrs <- c(lc_yrs, c_yrs, i_yrs)
-    startyr <- min(all_yrs)
-    endyr <- max(all_yrs)
-    all_yrs <- startyr:endyr
+    all_yrs <- minyr:maxyr
     if(length(all_yrs)>1000) stop("Some years may be in indexed numbers (e.g. 1, 2, 3) while other years may be in AD (e.g. 2000, 2001, 2002)")
-    return(all_yrs)
+    return(as.numeric(all_yrs))
   })
+
+  output$displayTyears <- renderTable({
+        if(!is.null(total_years())){
+          mat <- matrix(as.character(total_years()), nrow=1, ncol=length(total_years()))
+        }
+  }, colnames=FALSE, caption="Total years:", caption.placement=getOption("xtable.caption.placement", "top"), caption.width=getOption("xtable.caption.width", NULL))
   
+  output$peekLC <- renderTable({
+    if(!is.null(lc_data())){
+      lc_data()
+    }
+  }, colnames=TRUE, rownames=TRUE, caption="Length data:", caption.placement=getOption("xtable.caption.placement", "top"), caption.width=getOption("xtable.caption.width", NULL))
+  
+  output$displayLCyears <- renderTable({
+    if(!is.null(lc_data())){
+      mat <- matrix(as.character(rownames(lc_data())), nrow=1, ncol=nrow(lc_data()))
+    }
+  }, colnames=FALSE, caption="Length years:", caption.placement=getOption("xtable.caption.placement", "top"), caption.width=getOption("xtable.caption.width", NULL))
+  
+  output$displayCyears <- renderTable({
+    if(!is.null(c_data())){
+      mat <- matrix(as.character(names(c_data())), nrow=1, ncol=length(c_data()))
+    }
+  }, colnames=FALSE, caption="Catch years:", caption.placement=getOption("xtable.caption.placement", "top"), caption.width=getOption("xtable.caption.width", NULL))
+  
+  output$displayIyears <- renderTable({
+    if(!is.null(i_data())){
+      mat <- matrix(as.character(names(i_data())), nrow=1, ncol=length(i_data()))
+    }
+  }, colnames=FALSE, caption="Index years:", caption.placement=getOption("xtable.caption.placement", "top"), caption.width=getOption("xtable.caption.width", NULL))
+  
+  # output$dataInfo <- renderPlot({
+  #   par(mfrow=c(1,1))
+  #   tyrs <- total_years()
+  #   plot(x=1,y=1,type="n",axes=F, ann=F, xlim=c(1,max(1,length(tyrs))), ylim=c(0,1))
+  #   if(!is.null(total_years())){
+  #     text(x=1,y=1, "Total years:", xpd=NA, font=2)
+  #     sapply(1:length(tyrs), function(x) text(x=x, y=0.9, tyrs[x], xpd=NA))
+  #   }
+  #   if(!is.null(lc_data())){
+  #     text(x=1, y=0.7, "Length years:", xpd=NA, font=2)
+  #     lc <- lc_data()
+  #     lc_yrs <- as.numeric(rownames(lc))
+  #     sapply(1:length(lc_yrs), function(x) text(x=x, y=0.6, lc_yrs[x], xpd=NA))
+  #   }
+  #   
+  # }, height=200, width=500)
+  # 
   output$plot_LC1 <- renderPlot({
     if(is.null(lc_data())) return(NULL)
     if(!is.null(lc_data())){
@@ -291,6 +352,7 @@ shinyServer(function(input, output){
         }
         plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Catch", cex.lab=1.5, ylim=ylim)
         if(all(is.na(Sdreport))==FALSE) polygon(y=read_sdreport(sd, log=TRUE), x=c(which(is.na(sd[,2])==FALSE), rev(which(is.na(sd[,2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
+        lines(c_yrs, c_t, lwd=2)
         points(all_yrs, Report$C_t, lwd=2, col="blue", pch=19)
       }
     }
@@ -312,6 +374,7 @@ shinyServer(function(input, output){
           }
           plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Index", cex.lab=1.5, ylim=ylim)
           if(all(is.na(Sdreport))==FALSE) polygon(y=read_sdreport(sd, log=TRUE), x=c(which(is.na(sd[,2])==FALSE), rev(which(is.na(sd[,2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
+          lines(i_yrs, i_t, lwd=2)
           points(all_yrs, Report$I_t, lwd=2, col="blue", pch=19)
         }
     }
@@ -328,6 +391,7 @@ shinyServer(function(input, output){
     fluidRow(
       actionButton("goAssess", "Fit Model", icon("line-chart"), style="color: #fff; background-color: #00B700; border-color: #006D00"),
       style="padding: 15px 15px 15px 15px;")
+    
   })
   
   shinyDirChoose(input, 'directory', roots=c(wd="."), restrictions=system.file(package='base'))

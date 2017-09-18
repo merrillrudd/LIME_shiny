@@ -12,7 +12,7 @@ shinyUI(fluidPage(
     h4("To use the LIME application you will need:"),
     tags$ol(
       tags$li("Life history information"),
-      tags$li("At least one year of length composition from the fishery"),
+      tags$li("At least one year of length composition from the fishery catch"),
       tags$li("Optional: an abundance index time series"),
       tags$li("Optional: at least one year of catch data")
     ),
@@ -23,12 +23,12 @@ shinyUI(fluidPage(
         tags$li("von Bertalanffy growth parameters"),
         tags$li("Length at 50% maturity (and 95% maturity if there is information to inform the slope of a logistic function)"),
         tags$li("Length-weight parameters"),
-        tags$li("Natural mortality (can be informed using the natural mortality tool: https://github.com/shcaba/Natural-Mortality-Tool"),
+        tags$li("Natural mortality (can be informed using the natural mortality tool: https://github.com/shcaba/Natural-Mortality-Tool)"),
         tags$li("Starting values for length at 50% and 95% selectivity (Note: if assuming dome-shaped selectivity, will be able to fix selectivity to some assumed curve but cannot estimate selectivity parameters at this time)")
       ),
       h5("Remember to check:"),
         tags$ul(
-          tags$li("Input growth curves and maturity curves"),
+          tags$li("Input growth curves and maturity curves."),
           tags$li("Input selectivity curve and specify whether you'd like to estimate or fix it when fitting the model."),
           tags$li("Predicted size at age for the species. If there are gaps between the size-at-age distributions, consider running on a shorter-than-annual time step (e.g. quarterly, monthly, weekly). This may be the case for short-lived species.")
         ),
@@ -43,9 +43,10 @@ shinyUI(fluidPage(
       ),
       h5("Catch and abundance index data format:"),
       tags$ul(
-        tags$li("Row 1 should have the years of each observation of catch or index"),
-        tags$li("Row 2 should have the observed catch or index value")
+        tags$li("Column 1 should have the year of each observation"),
+        tags$li("Column 2 should have the value of catch or abundance index in that year")
       ),
+      h6("Note: setup for the shiny app and what the R object should look like are different. If using the shiny app, mimic the setup in the example files. If using R, see vignette associated with the R package."),
     h4("Run Model"),
       h5("After checking that the data and life history information are set up correctly, it is time to fit the model."),
       tags$ol(
@@ -135,6 +136,8 @@ shinyUI(fluidPage(
         
       ),
       mainPanel(
+            tableOutput("displayTyears"),
+            tableOutput("peekLC"),
             plotOutput("plot_LC1"),
             plotOutput("CatchIndex")
         )
