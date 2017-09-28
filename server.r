@@ -231,6 +231,7 @@ shinyServer(function(input, output){
     
     all_yrs <- minyr:maxyr
     if(length(all_yrs)>1000) stop("Some years may be in indexed numbers (e.g. 1, 2, 3) while other years may be in AD (e.g. 2000, 2001, 2002)")
+    if(all_yrs[1]<1000) all_yrs <- 1:maxyr
     return(as.numeric(all_yrs))
   })
 
@@ -352,8 +353,7 @@ shinyServer(function(input, output){
         }
         plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Catch", cex.lab=1.5, ylim=ylim)
         if(all(is.na(Sdreport))==FALSE) polygon(y=read_sdreport(sd, log=TRUE), x=c(which(is.na(sd[,2])==FALSE), rev(which(is.na(sd[,2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-        lines(c_yrs, c_t, lwd=2)
-        points(all_yrs, Report$C_t, lwd=2, col="blue", pch=19)
+        lines(all_yrs, Report$C_t, lwd=2, col="blue", pch=19, type="o")
       }
     }
       if(is.null(i_data())==FALSE){
@@ -372,10 +372,9 @@ shinyServer(function(input, output){
             sd[,2][which(is.na(sd[,2]))] <- 0
             ylim <- c(0, max(read_sdreport(sd, log=TRUE))*1.2)
           }
-          plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Index", cex.lab=1.5, ylim=ylim)
+          plot(all_yrs, index_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Index", cex.lab=1.5, ylim=ylim)
           if(all(is.na(Sdreport))==FALSE) polygon(y=read_sdreport(sd, log=TRUE), x=c(which(is.na(sd[,2])==FALSE), rev(which(is.na(sd[,2])==FALSE))), col=rgb(0,0,1,alpha=0.2), border=NA)
-          lines(i_yrs, i_t, lwd=2)
-          points(all_yrs, Report$I_t, lwd=2, col="blue", pch=19)
+          lines(all_yrs, Report$I_t, lwd=2, col="blue", pch=19, type='o')
         }
     }
   })
@@ -442,12 +441,13 @@ shinyServer(function(input, output){
   })
   
 
-  output$checkConverge <- renderDataTable({
-    if(values$goRun==FALSE) return("")
+  output$checkConverge <- renderTable({
+    if(values$goRun==FALSE) return(NULL)
     res <- doAssess()
     df <- readRDS(file.path(path(), "check_convergence.rds"))
+    colnames(df) <- c("Final gradient","Parameter","Estimate","Transformed estimate")
     df
-  }, options=list(pageLength=-1, searching=FALSE, paging=FALSE, ordering=FALSE, info=FALSE))
+  }, colnames=TRUE, digits=4, options=list(pageLength=-1, searching=FALSE, paging=FALSE, ordering=FALSE, info=FALSE))
 
   output$plotResults <- renderPlot({
     if(values$goRun==FALSE) return(NULL)
