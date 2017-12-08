@@ -22,14 +22,17 @@ shinyServer(function(input, output){
     div(id=letters[(times %% length(letters)) + 1],
         h4("von Bertalanffy growth parameters"),
         fluidRow(
-          column(4,
+          column(3,
                  numericInput("linf", label = HTML(paste0(tags$i("L"), tags$sub(HTML("&infin;")))), value=65)
           ),
-          column(4,
+          column(3,
                  numericInput("vbk", label=tags$i("k"), value=0.21)
           ),
-          column(4,
+          column(3,
                  numericInput("t0", label=HTML(paste0(tags$i("t", tags$sub(HTML("0"))))), value=-0.01)
+          ),
+          column(3,
+                 numericInput("CVlen", label=HTML(paste0(tags$i("CV", tags$sub(HTML("length"))))), value=0.1)
           )),
         h4("Natural mortality"),
         fluidRow(
@@ -75,7 +78,7 @@ shinyServer(function(input, output){
   })
   
   get_lh <- reactive({
-    lh <- create_lh_list(linf=input$linf, vbk=input$vbk, t0=input$t0, M=input$M, M50=input$ML50, M95=input$ML95, maturity_input="length", lwa=input$lwa, lwb=input$lwb, S50=input$SL50, S95=input$SL95, selex_input="length", selex_type=input$selex_type, dome_sd=input$dome_sd, nseasons=input$nseasons)
+    lh <- create_lh_list(linf=input$linf, vbk=input$vbk, t0=input$t0, CVlen=input$CVlen, M=input$M, M50=input$ML50, M95=input$ML95, maturity_input="length", lwa=input$lwa, lwb=input$lwb, S50=input$SL50, S95=input$SL95, selex_input="length", selex_type=input$selex_type, dome_sd=input$dome_sd, nseasons=input$nseasons)
     return(lh)
   })
   
