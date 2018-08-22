@@ -2,6 +2,8 @@ library(shiny)
 library(LIME) ## download from github
 library(shinyFiles)
 library(TMB)
+library(dplyr)
+library(ggplot2)
 library(TMBhelper) ## download from github
 
 
@@ -105,7 +107,12 @@ shinyServer(function(input, output){
     if(is.list(get_lh())==FALSE) return(NULL)
     lh <- get_lh()
     par(mfrow=c(1,1), mar=c(5,5,5,0))
-    plot(lh$S_l, type="l", lwd=3, col="blue", xlab="Length", ylab="Proportion vulnerable to gear", cex.main=2, main="Selectivity-at-length", cex.axis=2, cex.lab=2)
+    plot(lh$S_fl[1,], type="l", lwd=3, col="blue", xlab="Length", ylab="Proportion vulnerable to gear", cex.main=2, main="Selectivity-at-length", cex.axis=2, cex.lab=2)
+    if(nrow(lh$S_fl)>1){
+      for(i in 2:nrow(lh$S_fl)){
+        lines(lh$S_fl[i,], lty=i, col="blue")
+      }
+    }
   })
   
   output$SizeAtAge <- renderPlot({
@@ -292,7 +299,8 @@ shinyServer(function(input, output){
       yrs <- as.numeric(rownames(lc))
       lbins <- as.numeric(colnames(lc))
       lc_inp <- list("LF"=lc)
-      plot_LCfits(Inputs=lc_inp, true_lc_years=yrs)
+      LF_df <- LFreq_df(lc_inp)
+      plot_LCfits(LF_df=LF_df)
     }
   })
   
@@ -323,15 +331,17 @@ shinyServer(function(input, output){
       yrs <- as.numeric(rownames(lc))
       lbins <- as.numeric(colnames(lc))
       Inputs <- list("LF"=lc)
+      LF_df <- LFreq_df(Inputs)
       if(values$goRun){
         res <- doAssess()
-        Report <- readRDS(file.path(path(), "Report.rds"))
-        Inputs <- readRDS(file.path(path(), "Inputs.rds"))
-        plot_LCfits(Inputs=Inputs$Data, Report=Report, true_lc_years=yrs)
+        results <- readRDS(file.path(path(), "LIME_output.rds"))
+        Report <- results$Report
+        Inputs <- results$Inputs
+        plot_LCfits(Inputs=Inputs$Data, Report=Report)
       }
        if(values$goRun==FALSE){
          Report <- NULL
-         plot_LCfits(Inputs=Inputs, Report=Report, true_lc_years=yrs)
+         plot_LCfits(LF_df=LF_df)
        }
   })
   
@@ -347,8 +357,9 @@ shinyServer(function(input, output){
       if(values$goRun==FALSE) plot(all_yrs, catch_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Catch", cex.lab=1.5, ylim=c(0, max(c_t)*1.1))
       if(values$goRun){
         res <- doAssess()
-        Report <- readRDS(file.path(path(), "Report.rds"))
-        Sdreport <- readRDS(file.path(path(), "Sdreport.rds"))
+        results <- readRDS(file.path(path(), "LIME_output.rds"))
+        Report <- results$Report
+        Sdreport <- results$Sdreport
         if(all(is.na(Sdreport))==FALSE){
           sd <- summary(Sdreport)[which(rownames(summary(Sdreport))=="lC_t"),]
           sd[,2][which(is.na(sd[,2]))] <- 0
@@ -368,8 +379,9 @@ shinyServer(function(input, output){
         if(values$goRun==FALSE) plot(all_yrs, index_plot, lwd=4, type="o", cex.axis=1.5, xlab="Year", ylab="Index", cex.lab=1.5, ylim=c(0, max(i_t)*1.1))
         if(values$goRun){
           res <- doAssess()
-          Report <- readRDS(file.path(path(), "Report.rds"))
-          Sdreport <- readRDS(file.path(path(), "Sdreport.rds"))
+          results <- readRDS(file.path(path(),"LIME_output.rds"))
+          Report <- results$Report
+          Sdreport <- results$Sdreport
           if(all(is.na(Sdreport))==FALSE){
             sd <- summary(Sdreport)[which(rownames(summary(Sdreport))=="lI_t"),]
             sd[,2][which(is.na(sd[,2]))] <- 0
@@ -419,7 +431,7 @@ shinyServer(function(input, output){
       c_t <- c_data()
       i_t <- i_data()
       yrs <- total_years()
-      input_data <- list("years"=yrs, "LF"=lf, "C_t"=c_t, "I_t"=i_t)
+      input_data <- list("years"=yrs, "LF"=lf, "C_ft"=c_t, "I_ft"=i_t)
       
       data_avail <- NULL
       if(input$lc_avail) data_avail <- "LC"
@@ -431,14 +443,21 @@ shinyServer(function(input, output){
       }
       if(input$c_avail==FALSE) C_opt <- 0
       
-      est_sigma <- FALSE
-      if(input$est_sigmaR) est_sigma <- "log_sigma_R"
+      if(input$est_sigmaR==FALSE) fix_more <- "log_sigma_R"
+      if(input$est_sigmaR==TRUE) fix_more <- FALSE
       
-      if(input$est_selex) S_l_input <- -1
-      if(input$est_selex==FALSE) S_l_input <- lh$S_l
+      if(input$est_selex){
+        est_selex_f <- TRUE
+        vals_selex_ft <- -1
+      }
+      if(input$est_selex==FALSE){
+        est_selex_f <- FALSE
+        vals_selex_ft <- lh$S_fl
+      }
     
+      inputs <- create_inputs(lh=lh, input_data=input_data)
       
-      res <- run_LIME(modpath=run_dir, lh=lh, input_data=input_data, data_avail=data_avail, est_sigma=est_sigma, S_l_input=S_l_input, C_opt=C_opt, newtonsteps=3, rewrite=TRUE)
+      res <- run_LIME(modpath=run_dir, input=inputs, data_avail=data_avail, fix_more=fix_more, est_selex_f=est_selex_f, vals_selex_ft=vals_selex_ft, C_type=C_opt, newtonsteps=3, rewrite=TRUE)
       return(res)
     }
   })
@@ -447,7 +466,8 @@ shinyServer(function(input, output){
   output$checkConverge <- renderTable({
     if(values$goRun==FALSE) return(NULL)
     res <- doAssess()
-    df <- readRDS(file.path(path(), "check_convergence.rds"))
+    results <- readRDS(file.path(path(), "LIME_output.rds"))
+    df <- results$df
     colnames(df) <- c("Final gradient","Parameter","Estimate","Transformed estimate")
     df
   }, colnames=TRUE, digits=4, options=list(pageLength=-1, searching=FALSE, paging=FALSE, ordering=FALSE, info=FALSE))
@@ -457,10 +477,11 @@ shinyServer(function(input, output){
     if(values$goRun){
       lh <- get_lh()
       res <- doAssess()
-      Report <- readRDS(file.path(path(), "Report.rds"))
-      Inputs <- readRDS(file.path(path(), "Inputs.rds"))
-      Sdreport <- readRDS(file.path(path(), "Sdreport.rds"))
-      plot_output(all_years=Inputs$Data$T_yrs, lc_years=Inputs$Data$LC_yrs, true_years=Inputs$Data$T_yrs, Inputs=Inputs, Report=Report, Sdreport=Sdreport, lh=lh, plot=c("Fish", "Rec", "SPR", "Selex"))
+      results <- readRDS(file.path(path(), "LIME_output.rds"))
+      Report <- results$Report
+      Inputs <- results$Inputs
+      Sdreport <- results$Sdreport
+      plot_output(Inputs=Inputs, Report=Report, Sdreport=Sdreport, lh=lh, plot=c("Fish", "Rec", "SPR", "Selex"))
     }
   })
   
